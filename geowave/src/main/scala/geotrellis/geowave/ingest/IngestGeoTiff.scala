@@ -33,6 +33,9 @@ import org.slf4j.LoggerFactory
 object IngestGeoTiff {
   private val logger = LoggerFactory.getLogger(this.getClass())
 
+  // TODO: runime should be configured
+  import cats.effect.unsafe.implicits.global
+
   def apply(params: IngestParameters[TilingBounds]): List[WriteResults] =
     sync[IO](params).unsafeRunSync()
 

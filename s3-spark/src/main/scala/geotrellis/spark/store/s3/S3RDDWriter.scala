@@ -80,16 +80,15 @@ class S3RDDWriter(
         val schema = kwWriterSchema.value.getOrElse(_recordCodec.schema)
 
         implicit val ec    = excutionContext
-        implicit val timer = IO.timer(ec)
-        implicit val cs    = IO.contextShift(ec)
+        
+        // TODO: runime should be configured
+        import cats.effect.unsafe.implicits.global
 
         val rows: fs2.Stream[IO, (String, Vector[(K, V)])] =
-          fs2.Stream.fromIterator[IO](
-            partition.map { case (key, value) => (key, value.toVector) }
-          )
+          fs2.Stream.fromIterator[IO](partition.map { case (key, value) => (key, value.toVector) }, 1)
 
         def elaborateRow(row: (String, Vector[(K,V)])): fs2.Stream[IO, (String, Vector[(K,V)])] = {
-          fs2.Stream eval IO.shift(ec) *> IO ({
+          fs2.Stream eval IO {
             val (key, current) = row
             val updated = LayerWriter.updateRecords(mergeFunc, current, existing = {
               try {
@@ -106,11 +105,11 @@ class S3RDDWriter(
               }
             })
             (key, updated)
-          })
+          }
         }
 
         def rowToRequest(row: (String, Vector[(K,V)])): fs2.Stream[IO, (PutObjectRequest, RequestBody)] = {
-          fs2.Stream eval IO.shift(ec) *> IO ({
+          fs2.Stream eval IO {
             val (key, kvs) = row
             val contentBytes = AvroEncoder.toBinary(kvs)(_codec)
             val request = PutObjectRequest.builder()
@@ -121,11 +120,11 @@ class S3RDDWriter(
             val requestBody = RequestBody.fromBytes(contentBytes)
 
             (putObjectModifier(request), requestBody)
-          })
+          }
         }
 
         def retire(request: PutObjectRequest, requestBody: RequestBody): fs2.Stream[IO, PutObjectResponse] =
-          fs2.Stream eval IO.shift(ec) *> IO { s3Client.putObject(request, requestBody) }
+          fs2.Stream eval IO { s3Client.putObject(request, requestBody) }
 
       rows
         .flatMap(elaborateRow)

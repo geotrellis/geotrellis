@@ -28,7 +28,7 @@ import geotrellis.spark.store.hadoop._
 import geotrellis.spark.testkit._
 import geotrellis.store.hadoop._
 
-import cats.effect.{ContextShift, IO}
+import cats.effect.IO
 import cats.implicits._
 import spire.syntax.cfor._
 import org.apache.spark.rdd.RDD
@@ -42,6 +42,8 @@ import scala.concurrent.ExecutionContext
 
 class GDALRasterSourceRDDSpec extends AnyFunSpec with TestEnvironment with BeforeAndAfterAll {
   import geotrellis.GDALTestUtils._
+  // TODO: runime should be configured
+  import cats.effect.unsafe.implicits.global
 
   val uri = gdalGeoTiffPath("vlm/aspect-tiled.tif")
   def filePathByIndex(i: Int): String = sparkGeoTiffPath(s"vlm/aspect-tiled-$i.tif")
@@ -209,7 +211,7 @@ class GDALRasterSourceRDDSpec extends AnyFunSpec with TestEnvironment with Befor
         assertRDDLayersEqual(reprojectedExpectedRDDGDAL, reprojectedSourceRDD, true)
       }
 
-      def parallelSpec(n: Int = 1000)(implicit cs: ContextShift[IO]): List[RasterSource] = {
+      def parallelSpec(n: Int = 1000): List[RasterSource] = {
         println(java.lang.Thread.activeCount())
 
         /** Functions to trigger Datasets computation */
@@ -277,7 +279,6 @@ class GDALRasterSourceRDDSpec extends AnyFunSpec with TestEnvironment with Befor
 
       it("should not fail on parallelization with a fork join pool") {
         val i = 1000
-        implicit val cs = IO.contextShift(ExecutionContext.global)
 
         parallelSpec(i)
       }
@@ -287,7 +288,6 @@ class GDALRasterSourceRDDSpec extends AnyFunSpec with TestEnvironment with Befor
         val n = 100
         val pool = Executors.newFixedThreadPool(n)
         val ec = ExecutionContext.fromExecutor(pool)
-        implicit val cs = IO.contextShift(ec)
 
         parallelSpec(i)
 

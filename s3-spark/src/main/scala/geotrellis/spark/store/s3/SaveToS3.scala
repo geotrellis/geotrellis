@@ -86,17 +86,18 @@ object SaveToS3 {
             val requestBody = RequestBody.fromBytes(bytes)
 
             (putObjectModifier(request), requestBody)
-          }
+          }, 1
         )
 
       implicit val ec    = executionContext
-      implicit val timer = IO.timer(ec)
-      implicit val cs    = IO.contextShift(ec)
+      
+      // TODO: runime should be configured
+      import cats.effect.unsafe.implicits.global
 
       import geotrellis.store.util.IOUtils._
       val write: (PutObjectRequest, RequestBody) => fs2.Stream[IO, PutObjectResponse] =
         (request, requestBody) => {
-          fs2.Stream eval IO.shift(ec) *> IO {
+          fs2.Stream eval IO {
             //request.getInputStream.reset() // reset in case of retransmission to avoid 400 error
             s3client.putObject(request, requestBody)
           }.retryEBO {

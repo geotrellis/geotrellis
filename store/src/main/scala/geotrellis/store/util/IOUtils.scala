@@ -17,7 +17,10 @@
 package geotrellis.store.util
 
 import cats.effect._
-import cats.syntax.all._
+import cats.syntax.apply._
+import cats.syntax.either._
+import cats.syntax.applicativeError._
+import cats.{ApplicativeError}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -27,7 +30,7 @@ object IOUtils {
   /**
     * Implement non-blocking Exponential Backoff on a Task.
     */
-  implicit class IOBackoff[A, F[_]: Effect: Timer: Sync](ioa: F[A]) {
+  implicit class IOBackoff[A, F[_]: ApplicativeError[*[_], Throwable]: Temporal: Async](ioa: F[A]) {
     /**
       * @param  p  returns true for exceptions that trigger a backoff and retry
       * @return
@@ -38,9 +41,9 @@ object IOUtils {
         val timeout = base * Random.nextInt(math.pow(2, count).toInt) // .extInt is [), implying -1
         val actualDelay = FiniteDuration(timeout.toMillis, MILLISECONDS)
 
-        ioa.handleErrorWith { error =>
-          if(p(error)) implicitly[Timer[F]].sleep(actualDelay) *> help(count + 1)
-          else implicitly[Sync[F]].raiseError(error)
+        ioa.handleErrorWith { error: Throwable =>
+          if(p(error)) Temporal[F].sleep(actualDelay) *> help(count + 1)
+          else Async[F].raiseError(error)
         }
       }
       help(0)
@@ -56,19 +59,18 @@ object IOUtils {
                                           (readFunc: BigInt => Vector[(K, V)])
                                           (backOffPredicate: Throwable => Boolean)
                                           (implicit ec: ExecutionContext): Vector[(K, V)] = {
-    implicit val timer = IO.timer(ec)
-    implicit val cs    = IO.contextShift(ec)
-
     val indices: Iterator[BigInt] = ranges.flatMap { case (start, end) =>
       (start to end).iterator
     }
 
-    val index: fs2.Stream[IO, BigInt] = fs2.Stream.fromIterator[IO](indices)
+    val index: fs2.Stream[IO, BigInt] = fs2.Stream.fromIterator[IO](indices, 1)
 
     val readRecord: BigInt => fs2.Stream[IO, Vector[(K, V)]] = { index =>
-      fs2.Stream eval IO.shift(ec) *> IO { readFunc(index) }.retryEBO { backOffPredicate }
+      fs2.Stream eval IO { readFunc(index) }.retryEBO { backOffPredicate }
     }
 
+    // TODO: runime should be configured
+    import cats.effect.unsafe.implicits.global
     index
       .map(readRecord)
       .parJoinUnbounded
