@@ -47,7 +47,9 @@ import scala.reflect.ClassTag
   val strategy: OverviewStrategy
 
   implicit val ec: ExecutionContext
-  implicit val cs      = IO.contextShift(ec)
+
+  // TODO: runime should be configured
+  import cats.effect.unsafe.implicits.global
 
   @experimental def read[V <: CellGrid[Int]: GeoTiffReader: ClassTag]
     (layerId: LayerId)
@@ -64,10 +66,10 @@ import scala.reflect.ClassTag
     val keyExtent: Extent = mapTransform(SpatialKey(x, y))
 
     val index: fs2.Stream[IO, GeoTiffMetadata] =
-      fs2.Stream.fromIterator[IO](attributeStore.query(layerId.name, ProjectedExtent(keyExtent, layoutScheme.crs)).toIterator)
+      fs2.Stream.fromIterator[IO](attributeStore.query(layerId.name, ProjectedExtent(keyExtent, layoutScheme.crs)).toIterator, 1)
 
     val readRecord: GeoTiffMetadata => fs2.Stream[IO, Option[Raster[V]]] = { md =>
-      fs2.Stream eval IO.shift(ec) *> IO {
+      fs2.Stream eval IO {
         val tiff = GeoTiffReader[V].read(RangeReader(md.uri), streaming = true)
         val reprojectedKeyExtent = keyExtent.reproject(layoutScheme.crs, tiff.crs)
 
@@ -104,10 +106,10 @@ import scala.reflect.ClassTag
         .layout
 
     val index: fs2.Stream[IO, GeoTiffMetadata] =
-      fs2.Stream.fromIterator[IO](attributeStore.query(layerId.name).toIterator)
+      fs2.Stream.fromIterator[IO](attributeStore.query(layerId.name).toIterator, 1)
 
     val readRecord: GeoTiffMetadata => fs2.Stream[IO, Raster[V]] = { md =>
-      fs2.Stream eval IO.shift(ec) *> IO {
+      fs2.Stream eval IO {
         val tiff = GeoTiffReader[V].read(RangeReader(md.uri), streaming = true)
         tiff
           .crop(tiff.extent, layout.cellSize)

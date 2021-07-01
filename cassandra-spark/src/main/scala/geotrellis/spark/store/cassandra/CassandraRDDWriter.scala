@@ -110,14 +110,15 @@ object CassandraRDDWriter {
 
               val rows: fs2.Stream[IO, (BigInt, Vector[(K,V)])] =
                 fs2.Stream.fromIterator[IO](
-                  partition.map { case (key, value) => (key, value.toVector) }
+                  partition.map { case (key, value) => (key, value.toVector) }, 1
                 )
 
               implicit val ec = executionContext
-              implicit val cs = IO.contextShift(ec)
+              // TODO: runime should be configured
+              import cats.effect.unsafe.implicits.global
 
               def elaborateRow(row: (BigInt, Vector[(K,V)])): fs2.Stream[IO, (BigInt, Vector[(K,V)])] = {
-                fs2.Stream eval IO.shift(ec) *> IO ({
+                fs2.Stream eval IO {
                   val (key, current) = row
                   val updated = LayerWriter.updateRecords(mergeFunc, current, existing = {
                     val oldRow = session.execute(readStatement.bind(key: BigInteger))
@@ -129,22 +130,22 @@ object CassandraRDDWriter {
                   })
 
                   (key, updated)
-                })
+                }
               }
 
               def rowToBytes(row: (BigInt, Vector[(K,V)])): fs2.Stream[IO, (BigInt, ByteBuffer)] = {
-                fs2.Stream eval IO.shift(ec) *> IO ({
+                fs2.Stream eval IO {
                   val (key, kvs) = row
                   val bytes = ByteBuffer.wrap(AvroEncoder.toBinary(kvs)(codec))
                   (key, bytes)
-                })
+                }
               }
 
               def retire(row: (BigInt, ByteBuffer)): fs2.Stream[IO, ResultSet] = {
                 val (id, value) = row
-                fs2.Stream eval IO.shift(ec) *> IO ({
+                fs2.Stream eval IO {
                   session.execute(writeStatement.bind(id: BigInteger, value))
-                })
+                }
               }
 
               val results = rows
@@ -153,7 +154,7 @@ object CassandraRDDWriter {
                 .map(retire)
                 .parJoinUnbounded
                 .onComplete {
-                  fs2.Stream eval IO.shift(ec) *> IO {
+                  fs2.Stream eval IO {
                     session.closeAsync()
                     session.getCluster.closeAsync()
                   }

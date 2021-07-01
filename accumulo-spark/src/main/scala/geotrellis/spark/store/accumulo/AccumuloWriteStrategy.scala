@@ -119,7 +119,8 @@ class SocketWriteStrategy(
     kvPairs.foreachPartition { partition =>
       if(partition.nonEmpty) {
         implicit val ec = executionContext
-        implicit val cs = IO.contextShift(ec)
+        // TODO: runime should be configured
+        import cats.effect.unsafe.implicits.global
 
         val writer = instance.connector.createBatchWriter(table, kwConfig.value)
 
@@ -129,10 +130,10 @@ class SocketWriteStrategy(
               val mutation = new Mutation(key.getRow)
               mutation.put(key.getColumnFamily, key.getColumnQualifier, System.currentTimeMillis(), value)
              mutation
-            }
+            }, 1
           )
 
-          val write = { mutation: Mutation => fs2.Stream eval IO.shift(ec) *> IO { writer.addMutation(mutation) } }
+          val write = { mutation: Mutation => fs2.Stream eval IO { writer.addMutation(mutation) } }
 
           (mutations map write)
             .parJoinUnbounded

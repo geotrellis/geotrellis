@@ -51,11 +51,12 @@ object AccumuloCollectionReader {
     val ranges = queryKeyBounds.flatMap(decomposeBounds).iterator
 
     implicit val ec = executionContext
-    implicit val cs = IO.contextShift(ec)
+    // TODO: runime should be configured
+    import cats.effect.unsafe.implicits.global
 
-    val range: fs2.Stream[IO, AccumuloRange] = fs2.Stream.fromIterator[IO](ranges)
+    val range: fs2.Stream[IO, AccumuloRange] = fs2.Stream.fromIterator[IO](ranges, 1)
 
-    val read = { range: AccumuloRange => fs2.Stream eval IO.shift(ec) *> IO {
+    val read = { range: AccumuloRange => fs2.Stream eval IO {
       val scanner = instance.connector.createScanner(table, new Authorizations())
       scanner.setRange(range)
       scanner.fetchColumnFamily(columnFamily)

@@ -43,6 +43,9 @@ import org.scalatest.matchers.should.Matchers
 import cats.effect.IO
 
 class IngestGeoTiffSpec extends TestEnvironment with Matchers {
+  // TODO: runime should be configured
+  import cats.effect.unsafe.implicits.global
+
   lazy val uri: String = "src/test/resources/raster/all-ones.tif"
 
   val ingestParameters = IngestParameters[TilingBounds](

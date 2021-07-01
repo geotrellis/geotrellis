@@ -40,13 +40,7 @@ abstract class AsyncWriter[Client, V, E](executionContext: => ExecutionContext =
     retryFunc: Option[Throwable => Boolean]
   ): Unit = {
     if (partition.isEmpty) return
-
-    // TODO: remove the implicit on ec and consider moving the implicit timer to method signature
-    implicit val ec    = executionContext
-    implicit val timer = IO.timer(ec)
-    implicit val cs    = IO.contextShift(ec)
-
-    val rows: fs2.Stream[IO, (String, V)] = fs2.Stream.fromIterator[IO](partition)
+    val rows: fs2.Stream[IO, (String, V)] = fs2.Stream.fromIterator[IO](partition, 1)
 
     def elaborateRow(row: (String, V)): fs2.Stream[IO, (String, V)] = {
       val foldUpdate: ((String, V)) => (String, V) = { case newRecord @ (key, newValue) =>
@@ -61,21 +55,22 @@ abstract class AsyncWriter[Client, V, E](executionContext: => ExecutionContext =
         }
       }
 
-      fs2.Stream eval IO.shift(ec) *> IO(foldUpdate(row))
+      fs2.Stream eval /*IO.shift(ec) *>*/ IO(foldUpdate(row))
     }
 
     def encode(row: (String, V)): fs2.Stream[IO, (String, E)] = {
       val (key, value) = row
       val encodeTask = IO((key, encodeRecord(key, value)))
-      fs2.Stream eval IO.shift(ec) *> encodeTask
+      fs2.Stream eval /*IO.shift(ec) *>*/ encodeTask
     }
 
     def retire(row: (String, E)): fs2.Stream[IO, Try[Long]] = {
       val writeTask = IO(writeRecord(client, row._1, row._2))
       import geotrellis.store.util.IOUtils._
-      fs2.Stream eval IO.shift(ec) *> retryFunc.fold(writeTask)(writeTask.retryEBO(_))
+      fs2.Stream eval /*IO.shift(ec) *>*/ retryFunc.fold(writeTask)(writeTask.retryEBO(_))
     }
 
+    import cats.effect.unsafe.implicits.global
     rows
       .flatMap(elaborateRow)
       .flatMap(encode)
